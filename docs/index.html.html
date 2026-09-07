@@ -1,0 +1,205 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Refresh Priority Scoring — FlyRank ML Internship Capstone</title>
+<link rel="icon" type="image/svg+xml" href="../favicon-logo.svg">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@700&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: 'Inter', sans-serif;
+    background: #0F172A;
+    color: #F1F5F9;
+    line-height: 1.65;
+  }
+  main {
+    max-width: 700px;
+    margin: 0 auto;
+    padding: 64px 24px 96px;
+  }
+  h1 {
+    font-family: 'Space Grotesk', sans-serif;
+    font-size: 2rem;
+    font-weight: 700;
+    line-height: 1.25;
+    letter-spacing: -0.01em;
+  }
+  .meta {
+    margin-top: 14px;
+    color: #94A3B8;
+    font-size: 0.9rem;
+  }
+  h2 {
+    font-family: 'Space Grotesk', sans-serif;
+    font-size: 1.3rem;
+    font-weight: 700;
+    margin-top: 56px;
+    margin-bottom: 18px;
+    padding-bottom: 10px;
+    border-bottom: 1px solid #1E293B;
+  }
+  p { margin-bottom: 14px; color: #E2E8F0; }
+  .abstract {
+    margin-top: 32px;
+    padding: 20px 22px;
+    background: #111C33;
+    border-left: 3px solid #38BDF8;
+  }
+  .abstract p { margin-bottom: 0; color: #CBD5E1; }
+  ul, ol { margin: 0 0 14px 22px; color: #E2E8F0; }
+  li { margin-bottom: 6px; }
+  code {
+    background: #1E293B;
+    padding: 2px 6px;
+    border-radius: 3px;
+    font-size: 0.88em;
+    color: #7DD3FC;
+  }
+  .metric-row {
+    display: flex;
+    gap: 32px;
+    margin: 24px 0;
+    flex-wrap: wrap;
+  }
+  .metric {
+    flex: 1;
+    min-width: 160px;
+  }
+  .metric .value {
+    font-family: 'Space Grotesk', sans-serif;
+    font-size: 2.1rem;
+    font-weight: 700;
+    color: #38BDF8;
+  }
+  .metric .label {
+    font-size: 0.85rem;
+    color: #94A3B8;
+    margin-top: 4px;
+  }
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 20px 0;
+    font-size: 0.85rem;
+  }
+  th, td {
+    text-align: left;
+    padding: 9px 10px;
+    border-bottom: 1px solid #1E293B;
+  }
+  th {
+    color: #94A3B8;
+    font-weight: 500;
+    font-size: 0.78rem;
+  }
+  td { color: #E2E8F0; }
+  img {
+    width: 100%;
+    border: 1px solid #1E293B;
+    margin: 20px 0;
+    display: block;
+  }
+  .caption {
+    font-size: 0.82rem;
+    color: #94A3B8;
+    margin-top: -12px;
+    margin-bottom: 24px;
+  }
+  a { color: #38BDF8; }
+  footer {
+    margin-top: 64px;
+    padding-top: 24px;
+    border-top: 1px solid #1E293B;
+    font-size: 0.85rem;
+    color: #94A3B8;
+  }
+</style>
+</head>
+<body>
+<main>
+
+  <h1>Which pages actually need a content refresh? A client-generalizable scoring model</h1>
+  <div class="meta">Rupam More — FlyRank ML Internship Capstone — Refresh / Content Opportunity Scoring</div>
+
+  <div class="abstract">
+    <p><strong>Abstract.</strong> Content teams can't manually review every page for decline, and simple rules (like "flag anything past position 10") barely beat chance. This project asks whether a model trained on 90-day search performance windows can identify pages likely to keep declining, using features that exist before the decline happens. A Random Forest trained on impression trends, ranking position, position volatility, and query-mix signals from FlyRank's search warehouse reached 0.905 ROC-AUC on pages from clients never seen during training, against a 0.560 baseline for the position-only rule. The result is a ranked action queue: about a third of scored pages get a concrete recommendation (rewrite, review, or watch), the rest get left alone — which is the actual point of scoring at all.</p>
+  </div>
+
+  <h2>Introduction</h2>
+  <p>Content teams generally can't review every page on a regular cadence — there are too many, and most don't need attention. The decision this project supports is: <em>which pages should a content team look at first, and why</em>, so review time goes to pages that are actually declining rather than pages that just look busy.</p>
+  <p>A wrong call here has a real cost either direction. Flagging a stable page wastes review time. Missing a genuinely declining high-traffic page means it keeps losing visibility for another review cycle. The scoring model exists to make that trade-off better than a fixed threshold does.</p>
+
+  <h2>Data</h2>
+  <p>This project uses FlyRank's internship warehouse release: ~17 months of daily search performance across roughly 70 pseudonymized clients, plus a query-level table describing how each page earns its impressions. All identifiers are pseudonymized content and client hashes — no client names, domains, or raw queries appear anywhere in this analysis.</p>
+  <p>Two 90-day windows were used per page: a feature window and, immediately after it, an outcome window used only to define the label — never to build a feature. Pages with fewer than 100 impressions in the earlier window were excluded to avoid scoring on noise.</p>
+
+  <h2>Methodology</h2>
+  <p><strong>Task framing:</strong> binary classification — will this page's impressions decline by more than 20% from one 90-day window to the next.</p>
+  <p><strong>Features</strong> (all computed from the feature window only, before the outcome window exists):</p>
+  <ul>
+    <li>Prior-window impressions</li>
+    <li>Average search ranking position</li>
+    <li>Position volatility (standard deviation of position over the window)</li>
+    <li>Share of impressions from rare/long-tail queries</li>
+    <li>Share of impressions that are anonymized (below reporting threshold)</li>
+    <li>Concentration of impressions in the page's single top query</li>
+  </ul>
+  <p><strong>Leakage check:</strong> every feature is built strictly from data available before the outcome window begins, so the model cannot see the answer while learning the question.</p>
+  <p><strong>Validation:</strong> pages were split by client, not at random — training and test sets never share a client. A random split would let the model partly memorize a client's baseline behavior rather than learn a pattern that generalizes to pages it has never seen from clients it has never seen. This is a harder, more honest test than it first appears, and the gap between a naive split and this one is itself worth reporting for any future work on this dataset.</p>
+
+  <h2>Results</h2>
+  <div class="metric-row">
+    <div class="metric"><div class="value">0.905</div><div class="label">Model ROC-AUC (client-held-out)</div></div>
+    <div class="metric"><div class="value">0.560</div><div class="label">Baseline ROC-AUC (position &gt; 10 rule)</div></div>
+    <div class="metric"><div class="value">28,142</div><div class="label">Pages scored</div></div>
+  </div>
+
+  <img src="assets/evaluation_curves.png" alt="ROC curve comparing the Random Forest model to the position-rule baseline">
+  <div class="caption">ROC curve, model vs. baseline, evaluated on clients held out of training entirely.</div>
+
+  <p>The baseline's 0.560 is close to a coin flip — a single position threshold captures almost no signal about which specific pages are trending down. The model's 0.905 on unseen clients indicates the decline pattern is learnable from window-over-window behavior, not just tied to how any one client's pages happen to behave.</p>
+
+  <p>Turning scores into an action queue and reviewing the distribution (not just the raw probability count) mattered here: an early, uncalibrated volatility cutoff flagged 87% of all pages for some action, which defeats the purpose of prioritizing. Comparing that cutoff against the actual distribution of position volatility (median 10.9, well above the initial guess of 5) and recalibrating it to the 90th percentile brought the flagged share down to a workable 36.6%:</p>
+
+  <table>
+    <tr><th>Tier</th><th>Meaning</th><th>Pages</th></tr>
+    <tr><td>P1 — Rewrite/Refresh</td><td>High decline probability, high prior traffic</td><td>7,448</td></tr>
+    <tr><td>P2 — Content Review</td><td>High decline probability, lower traffic</td><td>1,788</td></tr>
+    <tr><td>P3 — Monitor (Volatile)</td><td>Ranking swinging outside the 90th percentile</td><td>1,073</td></tr>
+    <tr><td>P4 — Monitor</td><td>No action needed</td><td>17,833</td></tr>
+  </table>
+
+  <h2>Limitations &amp; Honest Framing</h2>
+  <ul>
+    <li>This model identifies pages statistically likely to keep declining — it does not prove <em>why</em> any individual page is declining, and it makes no claim about Google's ranking algorithm.</li>
+    <li>"Decline" here means a 20% impression drop between two fixed 90-day windows. A page with a real but slower decline, or one that dips then recovers mid-window, may not trip this specific definition.</li>
+    <li>The client-held-out split is a stronger test than random splitting, but 0.905 should still be read as this dataset's result, not a guaranteed number on a different search population.</li>
+    <li>The action-tier thresholds (0.65 probability, 1,000 impressions, 90th-percentile volatility) are calibrated to this dataset's distributions. They should be re-checked, not copy-pasted, on new data.</li>
+    <li>Results are decision-support for a human content team, not an automated publishing action — see the recommendations below.</li>
+  </ul>
+
+  <h2>Ranked Recommendations</h2>
+  <ol>
+    <li>Route P1 (Rewrite/Refresh) pages to the content team first — these combine high decline probability with meaningful existing traffic, so they carry the largest cost if left alone.</li>
+    <li>Treat P2 (Content Review) as a lighter-touch queue — same decline signal, lower stakes per page, suitable for a faster review pass.</li>
+    <li>Don't action P3 (volatile) pages immediately — volatility alone isn't decline. Re-check them next cycle to see if the swing resolves on its own.</li>
+    <li>Re-run the volatility and probability thresholds against each new data pull rather than reusing fixed numbers — this project's own first pass shows how much a wrong threshold changes the result.</li>
+  </ol>
+
+  <h2>Reproducibility</h2>
+  <p>Full notebook history (research question through this capstone) is in the repository's <code>work/notebooks/</code> directory, including the feature-engineering and modeling notebook this paper is built from and the weekly assignment notebooks that led to it.</p>
+
+  <h2>Acknowledgments &amp; Data Credit</h2>
+  <p>Built on the FlyRank ML Internship dataset — <a href="https://flyrank.ai" target="_blank" rel="noopener">flyrank.ai</a>.</p>
+
+  <footer>
+    Rupam More · FlyRank ML Internship Capstone
+  </footer>
+
+</main>
+</body>
+</html>
